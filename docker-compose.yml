@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: ccee-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - ccee-network
+
+  backend:
+    build: ./backend
+    container_name: ccee-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/
+    depends_on:
+      - mongodb
+    volumes:
+      - ./backend:/app
+    networks:
+      - ccee-network
+
+  frontend:
+    build: ./frontend
+    container_name: ccee-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - ccee-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  ccee-network:
+    driver: bridge
