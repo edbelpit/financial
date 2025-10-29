@@ -18,8 +18,10 @@ export const fetchAnos = createAsyncThunk(
     try {
       console.log('🔄 Buscando anos disponíveis...')
       const response = await api.get('/api/anos')
-      console.log(`✅ Anos recebidos: ${response.data.length} anos`)
-      return response.data
+      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
+      const anos = response.data.anos || response.data
+      console.log(`✅ Anos recebidos: ${Array.isArray(anos) ? anos.length : 'undefined'} anos`)
+      return anos
     } catch (error) {
       console.error('❌ Erro ao buscar anos:', error)
       return rejectWithValue(
@@ -46,8 +48,10 @@ export const fetchData = createAsyncThunk(
       
       console.log('🔄 Buscando dados do MongoDB...', { filters, url })
       const response = await api.get(url)
-      console.log(`✅ Dados recebidos: ${response.data.length} registros`)
-      return response.data
+      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
+      const data = response.data.data || response.data
+      console.log(`✅ Dados recebidos: ${Array.isArray(data) ? data.length : 'undefined'} registros`)
+      return data
     } catch (error) {
       console.error('❌ Erro ao buscar dados:', error)
       return rejectWithValue(
@@ -59,18 +63,20 @@ export const fetchData = createAsyncThunk(
   }
 )
 
-// Buscar dados agregados
+// Buscar dados agregados - CORRIGIDO para aceitar ano
 export const fetchAggregatedData = createAsyncThunk(
   'data/fetchAggregatedData',
-  async (empresa = null, { rejectWithValue }) => {
+  async ({ empresa = null, ano = null } = {}, { rejectWithValue }) => {
     try {
-      const url = empresa 
-        ? `/api/dados/agregados?empresa=${encodeURIComponent(empresa)}` 
-        : '/api/dados/agregados'
+      const params = new URLSearchParams()
+      if (empresa) params.append('empresa', empresa)
+      if (ano) params.append('ano', ano)
       
-      console.log('🔄 Buscando dados agregados...', { empresa, url })
+      const url = `/api/dados/agregados?${params.toString()}`
+      
+      console.log('🔄 Buscando dados agregados...', { empresa, ano, url })
       const response = await api.get(url)
-      console.log(`✅ Dados agregados recebidos: ${response.data.length} registros`)
+      console.log(`✅ Dados agregados recebidos: ${Array.isArray(response.data) ? response.data.length : 'undefined'} registros`)
       return response.data
     } catch (error) {
       console.error('❌ Erro ao buscar dados agregados:', error)
@@ -91,8 +97,10 @@ export const fetchEmpresas = createAsyncThunk(
       const url = ano ? `/api/empresas?ano=${ano}` : '/api/empresas'
       console.log('🔄 Buscando empresas...', { ano, url })
       const response = await api.get(url)
-      console.log(`✅ Empresas recebidas: ${response.data.length} empresas`)
-      return response.data
+      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
+      const empresas = response.data.empresas || response.data
+      console.log(`✅ Empresas recebidas: ${Array.isArray(empresas) ? empresas.length : 'undefined'} empresas`)
+      return empresas
     } catch (error) {
       console.error('❌ Erro ao buscar empresas:', error)
       return rejectWithValue(
@@ -112,8 +120,10 @@ export const fetchMeses = createAsyncThunk(
       const url = ano ? `/api/meses?ano=${ano}` : '/api/meses'
       console.log('🔄 Buscando meses...', { ano, url })
       const response = await api.get(url)
-      console.log(`✅ Meses recebidos: ${response.data.length} meses`)
-      return response.data
+      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
+      const meses = response.data.meses || response.data
+      console.log(`✅ Meses recebidos: ${Array.isArray(meses) ? meses.length : 'undefined'} meses`)
+      return meses
     } catch (error) {
       console.error('❌ Erro ao buscar meses:', error)
       return rejectWithValue(
@@ -145,13 +155,13 @@ export const fetchStats = createAsyncThunk(
   }
 )
 
-// Carregar dados via API
+// Carregar dados via API - ATUALIZADO para usar force_update
 export const loadData = createAsyncThunk(
   'data/loadData',
-  async ({ ano, meses = null }, { rejectWithValue }) => {
+  async ({ ano, meses = null, force_update = false }, { rejectWithValue }) => {
     try {
-      console.log('🔄 Carregando dados via API...', { ano, meses })
-      const payload = { ano, meses }
+      console.log('🔄 Carregando dados via API...', { ano, meses, force_update })
+      const payload = { ano, meses, force_update }
       const response = await api.post('/api/load-data', payload)
       console.log('✅ Dados carregados via API')
       return response.data
@@ -161,26 +171,6 @@ export const loadData = createAsyncThunk(
         error.response?.data?.detail || 
         error.message || 
         'Erro ao carregar dados'
-      )
-    }
-  }
-)
-
-// Limpar dados
-export const clearData = createAsyncThunk(
-  'data/clearData',
-  async (_, { rejectWithValue }) => {
-    try {
-      console.log('🔄 Limpando dados...')
-      const response = await api.delete('/api/clear-data')
-      console.log('✅ Dados limpos')
-      return response.data
-    } catch (error) {
-      console.error('❌ Erro ao limpar dados:', error)
-      return rejectWithValue(
-        error.response?.data?.detail || 
-        error.message || 
-        'Erro ao limpar dados'
       )
     }
   }
@@ -263,7 +253,8 @@ const dataSlice = createSlice({
       })
       .addCase(fetchAnos.fulfilled, (state, action) => {
         state.loadingAnos = false
-        state.anos = action.payload
+        // ✅ CORREÇÃO: Garante que seja um array
+        state.anos = Array.isArray(action.payload) ? action.payload : []
         state.error = null
       })
       .addCase(fetchAnos.rejected, (state, action) => {
@@ -278,7 +269,8 @@ const dataSlice = createSlice({
       })
       .addCase(fetchData.fulfilled, (state, action) => {
         state.loading = false
-        state.rawData = action.payload
+        // ✅ CORREÇÃO: Garante que seja um array
+        state.rawData = Array.isArray(action.payload) ? action.payload : []
         state.dataLoaded = true
         state.lastUpdate = new Date().toISOString()
         state.error = null
@@ -294,7 +286,8 @@ const dataSlice = createSlice({
       })
       .addCase(fetchAggregatedData.fulfilled, (state, action) => {
         state.loading = false
-        state.aggregatedData = action.payload
+        // ✅ CORREÇÃO: Garante que seja um array
+        state.aggregatedData = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchAggregatedData.rejected, (state, action) => {
         state.loading = false
@@ -307,7 +300,8 @@ const dataSlice = createSlice({
       })
       .addCase(fetchEmpresas.fulfilled, (state, action) => {
         state.loadingEmpresas = false
-        state.empresas = action.payload
+        // ✅ CORREÇÃO: Garante que seja um array
+        state.empresas = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchEmpresas.rejected, (state, action) => {
         state.loadingEmpresas = false
@@ -320,7 +314,8 @@ const dataSlice = createSlice({
       })
       .addCase(fetchMeses.fulfilled, (state, action) => {
         state.loadingMeses = false
-        state.meses = action.payload
+        // ✅ CORREÇÃO: Garante que seja um array
+        state.meses = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchMeses.rejected, (state, action) => {
         state.loadingMeses = false
@@ -338,33 +333,20 @@ const dataSlice = createSlice({
       // Load Data
       .addCase(loadData.pending, (state) => {
         state.operationStatus = 'loading'
-        state.operationMessage = 'Carregando dados...'
+        state.operationMessage = 'Carregando dados da CCEE...'
         state.error = null
       })
       .addCase(loadData.fulfilled, (state, action) => {
         state.operationStatus = 'succeeded'
         state.operationMessage = action.payload.message
         state.error = null
+        
+        // Recarrega os dados após carregamento bem-sucedido
+        dispatch(fetchData())
+        dispatch(fetchAggregatedData())
+        dispatch(fetchEmpresas())
       })
       .addCase(loadData.rejected, (state, action) => {
-        state.operationStatus = 'failed'
-        state.operationMessage = action.payload
-        state.error = action.payload
-      })
-      
-      // Clear Data
-      .addCase(clearData.pending, (state) => {
-        state.operationStatus = 'loading'
-        state.operationMessage = 'Limpando dados...'
-      })
-      .addCase(clearData.fulfilled, (state, action) => {
-        state.operationStatus = 'succeeded'
-        state.operationMessage = action.payload.message
-        state.rawData = []
-        state.aggregatedData = []
-        state.dataLoaded = false
-      })
-      .addCase(clearData.rejected, (state, action) => {
         state.operationStatus = 'failed'
         state.operationMessage = action.payload
         state.error = action.payload

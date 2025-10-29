@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import sys
 import os
+import time
 
 class CCEEDataLoader:
     def __init__(self):
@@ -97,7 +98,7 @@ class CCEEDataLoader:
         return None
     
     def fetch_data_for_month(self, ano, mes):
-        """Busca dados de um mês específico da API CCEE"""
+        """Busca dados de um mês específico da API CCEE com paginação completa"""
         resource_id = self.get_resource_id(ano)
         if not resource_id:
             print(f"❌ Não foi possível obter resource ID para {ano}")
@@ -107,26 +108,68 @@ class CCEEDataLoader:
         filters = {"MES_REFERENCIA": mes_referencia}
         filters_json = json.dumps(filters)
         
-        url = f"https://dadosabertos.ccee.org.br/api/3/action/datastore_search?resource_id={resource_id}&filters={filters_json}"
-        
         print(f"🌐 Buscando {mes_referencia}...")
         
+        all_records = []
+        offset = 0
+        limit = 500  # Máximo permitido pela API
+        max_records = 50000  # Limite máximo para evitar timeouts
+        total_records = None
+        page = 1
+        
         try:
-            response = requests.get(url, timeout=60)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data.get("success"):
-                records = data["result"]["records"]
-                if records:
-                    print(f"✅ {mes_referencia}: {len(records)} registros")
-                    return records
+            while len(all_records) < max_records:
+                url = f"https://dadosabertos.ccee.org.br/api/3/action/datastore_search?resource_id={resource_id}&filters={filters_json}&limit={limit}&offset={offset}"
+                
+                print(f"   📄 Página {page}...")
+                
+                response = requests.get(url, timeout=60)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                if data.get("success"):
+                    result = data["result"]
+                    records = result["records"]
+                    
+                    # Primeira requisição: mostra total
+                    if total_records is None:
+                        total_records = result.get("total", 0)
+                        print(f"   📊 Total na API: {total_records:,} registros")
+                        if total_records > max_records:
+                            print(f"   ⚠️  Limitando para: {max_records:,} registros (evitar timeout)")
+                    
+                    if records:
+                        all_records.extend(records)
+                        print(f"   ✅ Página {page}: +{len(records):,} registros (Total: {len(all_records):,})")
+                        
+                        # Verifica se há mais páginas
+                        if len(records) < limit or len(all_records) >= total_records:
+                            break
+                        
+                        offset += limit
+                        page += 1
+                        
+                        # Pequena pausa para não sobrecarregar a API
+                        time.sleep(0.3)
+                    else:
+                        break
                 else:
-                    print(f"⚠️  {mes_referencia}: 0 registros (possivelmente mês sem dados)")
+                    print(f"❌ Erro na API para {mes_referencia}")
                     return None
+                    
+            if all_records:
+                print(f"🎯 {mes_referencia}: {len(all_records):,} registros baixados")
+                
+                # Estatísticas
+                empresas_unicas = len(set(record.get('NOME_EMPRESARIAL', '') for record in all_records))
+                perfis_unicos = len(set(record.get('CODIGO_PERFIL_AGENTE', '') for record in all_records))
+                print(f"   🏢 Empresas únicas: {empresas_unicas}")
+                print(f"   🔢 Perfis únicos: {perfis_unicos}")
+                
+                return all_records
             else:
-                print(f"❌ Erro na API para {mes_referencia}")
+                print(f"⚠️  {mes_referencia}: 0 registros")
                 return None
                 
         except Exception as e:
@@ -181,7 +224,7 @@ class CCEEDataLoader:
             # Verifica se já existe
             existing_count = self.collection.count_documents({"MES_REFERENCIA": mes_referencia})
             if existing_count > 0:
-                print(f"⏭️  {mes_referencia} já existe ({existing_count} registros), pulando...")
+                print(f"⏭️  {mes_referencia} já existe ({existing_count:,} registros), pulando...")
                 continue
             
             # Busca dados
@@ -209,7 +252,7 @@ class CCEEDataLoader:
                             print(f"   ⚠️ Erro em registro individual: {single_error}")
                     total_records += successful_inserts
                     months_with_data += 1 if successful_inserts > 0 else 0
-                    print(f"💾 {mes_referencia}: {successful_inserts}/{len(records)} registros salvos")
+                    print(f"💾 {mes_referencia}: {successful_inserts:,}/{len(records):,} registros salvos")
             else:
                 print(f"⚠️  Nenhum dado encontrado para {mes_referencia}")
         
@@ -223,7 +266,7 @@ class CCEEDataLoader:
             except Exception as e:
                 print(f"⚠️  Erro ao criar índices: {e}")
         
-        print(f"📈 {ano}: {total_records} registros em {months_with_data} meses")
+        print(f"📈 {ano}: {total_records:,} registros em {months_with_data} meses")
         return total_records
     
     def load_multiple_years(self, anos):
@@ -243,7 +286,7 @@ class CCEEDataLoader:
             records_loaded = self.load_year_data(ano)
             total_records += records_loaded
             
-            print(f"✅ Ano {ano}: {records_loaded} registros carregados")
+            print(f"✅ Ano {ano}: {records_loaded:,} registros carregados")
         
         return total_records
     
@@ -252,7 +295,7 @@ class CCEEDataLoader:
         confirm = input("⚠️  TEM CERTEZA que quer limpar TODOS os dados? (s/N): ")
         if confirm.lower() == 's':
             result = self.collection.delete_many({})
-            print(f"🗑️  {result.deleted_count} registros removidos")
+            print(f"🗑️  {result.deleted_count:,} registros removidos")
             return True
         else:
             print("❌ Operação cancelada")
@@ -261,6 +304,7 @@ class CCEEDataLoader:
     def get_database_stats(self):
         """Retorna estatísticas do banco"""
         total_records = self.collection.count_documents({})
+        empresas_count = len(self.collection.distinct("NOME_EMPRESARIAL"))
         meses = self.collection.distinct("MES_REFERENCIA")
         anos = list(set(mes[:4] for mes in meses))
         
@@ -268,6 +312,7 @@ class CCEEDataLoader:
         print("📊 ESTATÍSTICAS DO BANCO DE DADOS")
         print(f"{'='*50}")
         print(f"📈 Total de registros: {total_records:,}")
+        print(f"🏢 Empresas únicas: {empresas_count:,}")
         print(f"📅 Meses disponíveis: {len(meses)}")
         print(f"🎯 Anos disponíveis: {sorted(anos)}")
         print(f"📋 Meses: {sorted(meses)}")
@@ -276,7 +321,8 @@ class CCEEDataLoader:
         for ano in sorted(anos):
             count = self.collection.count_documents({"MES_REFERENCIA": {"$regex": f"^{ano}"}})
             meses_ano = [mes for mes in meses if mes.startswith(ano)]
-            print(f"   {ano}: {count:,} registros, {len(meses_ano)} meses")
+            empresas_ano = len(self.collection.distinct("NOME_EMPRESARIAL", {"MES_REFERENCIA": {"$regex": f"^{ano}"}}))
+            print(f"   {ano}: {count:,} registros, {empresas_ano:,} empresas, {len(meses_ano)} meses")
     
     def add_resource_id(self):
         """Adiciona manualmente um resource ID para um ano"""
@@ -289,6 +335,44 @@ class CCEEDataLoader:
         else:
             print("❌ Ano ou resource ID inválido")
 
+    def compare_with_excel(self):
+        """Compara estatísticas do MongoDB com dados esperados"""
+        print(f"\n{'='*50}")
+        print("📊 COMPARAÇÃO COM DADOS ESPERADOS")
+        print(f"{'='*50}")
+        
+        # Estatísticas atuais do MongoDB
+        total_mongo = self.collection.count_documents({})
+        empresas_mongo = len(self.collection.distinct("NOME_EMPRESARIAL"))
+        meses_mongo = self.collection.distinct("MES_REFERENCIA")
+        
+        print(f"🗄️  MONGODB ATUAL:")
+        print(f"   📈 Registros: {total_mongo:,}")
+        print(f"   🏢 Empresas: {empresas_mongo:,}")
+        print(f"   📅 Meses: {len(meses_mongo)}")
+        
+        # Solicita dados esperados do Excel
+        print(f"\n📊 DADOS ESPERADOS (do Excel):")
+        try:
+            excel_registros = int(input("   Quantidade total de registros no Excel: ").replace(',', '').strip() or "0")
+            excel_empresas = int(input("   Quantidade de empresas únicas no Excel: ").replace(',', '').strip() or "0")
+            excel_meses = int(input("   Quantidade de meses no Excel: ").strip() or "0")
+            
+            print(f"\n📈 COMPARAÇÃO:")
+            print(f"   Registros: MongoDB {total_mongo:,} vs Excel {excel_registros:,} | Diferença: {excel_registros - total_mongo:,}")
+            print(f"   Empresas: MongoDB {empresas_mongo:,} vs Excel {excel_empresas:,} | Diferença: {excel_empresas - empresas_mongo:,}")
+            print(f"   Meses: MongoDB {len(meses_mongo)} vs Excel {excel_meses} | Diferença: {excel_meses - len(meses_mongo)}")
+            
+            if total_mongo < excel_registros:
+                print(f"\n⚠️  ATENÇÃO: MongoDB tem {excel_registros - total_mongo:,} registros a menos!")
+                print("   Possíveis causas:")
+                print("   - Paginação não funcionando corretamente")
+                print("   - Limite máximo de registros atingido")
+                print("   - Alguns meses podem não ter sido carregados")
+                
+        except ValueError:
+            print("❌ Valores inválidos inseridos")
+
     def close_connection(self):
         """Fecha a conexão com o MongoDB"""
         if self.client:
@@ -298,7 +382,7 @@ class CCEEDataLoader:
 def main():
     loader = CCEEDataLoader()
     
-    print("🚀 CARREGADOR DE DADOS CCEE - ANOS DINÂMICOS")
+    print("🚀 CARREGADOR DE DADOS CCEE - COM PAGINAÇÃO")
     print("💡 Aceita qualquer ano entre 2000-2100")
     print(f"📚 Resource IDs conhecidos: {list(loader.resource_ids.keys())}")
     
@@ -309,17 +393,18 @@ def main():
             print("2. Carregar múltiplos anos")
             print("3. Carregar mês específico")
             print("4. Ver estatísticas do banco")
-            print("5. Adicionar resource ID manualmente")
-            print("6. LIMPAR BANCO DE DADOS (cuidado!)")
-            print("7. Sair")
+            print("5. Comparar com dados do Excel")
+            print("6. Adicionar resource ID manualmente")
+            print("7. LIMPAR BANCO DE DADOS (cuidado!)")
+            print("8. Sair")
             
-            opcao = input("\nEscolha uma opção (1-7): ").strip()
+            opcao = input("\nEscolha uma opção (1-8): ").strip()
             
             if opcao == "1":
                 ano = input("Digite o ano (YYYY): ").strip()
                 if loader.is_valid_year(ano):
                     total = loader.load_year_data(ano)
-                    print(f"\n✅ Carga concluída! {total} registros carregados para {ano}")
+                    print(f"\n✅ Carga concluída! {total:,} registros carregados para {ano}")
                 else:
                     print("❌ Ano deve estar entre 2000-2100")
             
@@ -330,7 +415,7 @@ def main():
                 
                 if valid_anos:
                     total = loader.load_multiple_years(valid_anos)
-                    print(f"\n✅ Carga concluída! {total} registros carregados no total")
+                    print(f"\n✅ Carga concluída! {total:,} registros carregados no total")
                 else:
                     print("❌ Nenhum ano válido encontrado")
             
@@ -343,11 +428,11 @@ def main():
                     
                     existing_count = loader.collection.count_documents({"MES_REFERENCIA": mes_referencia})
                     if existing_count > 0:
-                        print(f"⏭️  {mes_referencia} já existe ({existing_count} registros)")
+                        print(f"⏭️  {mes_referencia} já existe ({existing_count:,} registros)")
                         replace = input("Deseja substituir? (s/N): ")
                         if replace.lower() == 's':
                             loader.collection.delete_many({"MES_REFERENCIA": mes_referencia})
-                            print(f"🗑️  {existing_count} registros removidos")
+                            print(f"🗑️  {existing_count:,} registros removidos")
                         else:
                             continue
                     
@@ -355,7 +440,7 @@ def main():
                     if records:
                         records = loader.remove_duplicate_ids(records)
                         result = loader.collection.insert_many(records)
-                        print(f"✅ {mes_referencia}: {len(result.inserted_ids)} registros carregados")
+                        print(f"✅ {mes_referencia}: {len(result.inserted_ids):,} registros carregados")
                     else:
                         print(f"❌ Não foi possível carregar dados para {mes_referencia}")
                 else:
@@ -365,12 +450,15 @@ def main():
                 loader.get_database_stats()
             
             elif opcao == "5":
-                loader.add_resource_id()
+                loader.compare_with_excel()
             
             elif opcao == "6":
-                loader.clear_database()
+                loader.add_resource_id()
             
             elif opcao == "7":
+                loader.clear_database()
+            
+            elif opcao == "8":
                 print("👋 Saindo...")
                 break
             

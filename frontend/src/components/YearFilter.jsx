@@ -1,56 +1,55 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { setSelectedYear, fetchData, fetchAggregatedData, fetchEmpresas, fetchMeses } from '../store/slices/dataSlice'
+import { 
+  setSelectedYear, 
+  fetchAnos, 
+  fetchData, 
+  fetchAggregatedData 
+} from '../store/slices/dataSlice'
 
 const YearFilter = () => {
   const dispatch = useDispatch()
-  const { anos, selectedYear, selectedEmpresa } = useSelector(state => state.data)
+  const { anos, selectedYear, selectedEmpresa, loading } = useSelector(state => state.data)
+
+  useEffect(() => {
+    dispatch(fetchAnos())
+  }, [dispatch])
 
   const handleYearChange = (year) => {
     dispatch(setSelectedYear(year))
     
-    // Busca dados com os filtros atuais
     const filters = {}
     if (year) filters.ano = year
     if (selectedEmpresa) filters.empresa = selectedEmpresa
     
     dispatch(fetchData(filters))
-    dispatch(fetchAggregatedData(selectedEmpresa))
-    dispatch(fetchEmpresas(year))
-    dispatch(fetchMeses(year))
+    dispatch(fetchAggregatedData({ empresa: selectedEmpresa, ano: year }))
+  }
+
+  if (loading) {
+    return <div className="loading">Carregando anos...</div>
   }
 
   return (
     <div className="year-filter">
-      <h3>🎯 Filtrar por Ano</h3>
+      <h3>📅 Filtrar por Ano</h3>
       
-      <div className="filter-controls">
-        <select
-          value={selectedYear || ''}
-          onChange={(e) => handleYearChange(e.target.value)}
-          className="year-select"
-        >
-          <option value="">Todos os anos</option>
-          {anos.map(ano => (
-            <option key={ano} value={ano}>
-              {ano}
-            </option>
-          ))}
-        </select>
-
-        {selectedYear && (
-          <button
-            onClick={() => handleYearChange('')}
-            className="clear-filter"
-          >
-            Limpar Filtro
-          </button>
-        )}
-      </div>
+      <select
+        value={selectedYear || ''}
+        onChange={(e) => handleYearChange(e.target.value)}
+        className="year-select"
+      >
+        <option value="">Todos os anos</option>
+        {anos.map(ano => (
+          <option key={ano} value={ano}>
+            {ano}
+          </option>
+        ))}
+      </select>
 
       {selectedYear && (
         <div className="selected-info">
-          📊 Mostrando dados do ano: <strong>{selectedYear}</strong>
+          📅 Ano selecionado: <strong>{selectedYear}</strong>
         </div>
       )}
     </div>
