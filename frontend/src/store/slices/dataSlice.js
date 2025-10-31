@@ -11,6 +11,26 @@ const api = axios.create({
   timeout: 30000,
 })
 
+// ✅ NOVO: Atualizar dados da CCEE
+export const updateCCEEData = createAsyncThunk(
+  'data/updateCCEEData',
+  async (_, { rejectWithValue }) => {
+    try {
+      console.log('🔄 Atualizando dados da CCEE...')
+      const response = await api.post('/api/update-ccee-data')
+      console.log('✅ Atualização CCEE concluída:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('❌ Erro ao atualizar dados CCEE:', error)
+      return rejectWithValue(
+        error.response?.data?.detail || 
+        error.message || 
+        'Erro ao atualizar dados da CCEE'
+      )
+    }
+  }
+)
+
 // Buscar anos disponíveis
 export const fetchAnos = createAsyncThunk(
   'data/fetchAnos',
@@ -253,6 +273,32 @@ const dataSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // ✅ NOVO: Update CCEE Data - COM MENSAGENS CLARAS
+      .addCase(updateCCEEData.pending, (state) => {
+        state.operationStatus = 'loading'
+        state.operationMessage = 'Verificando atualizações na CCEE...'
+      })
+      .addCase(updateCCEEData.fulfilled, (state, action) => {
+        if (action.payload.success) {
+          if (action.payload.updated) {
+            state.operationStatus = 'succeeded'
+            // ✅ Mensagem específica para novos dados adicionados
+            state.operationMessage = `✅ Novos dados adicionados ao banco (${action.payload.month_updated}) - ${action.payload.records_updated} registros`
+          } else {
+            state.operationStatus = 'succeeded'
+            // ✅ Mensagem específica para banco atualizado
+            state.operationMessage = '✅ Banco já está atualizado'
+          }
+        } else {
+          state.operationStatus = 'failed'
+          state.operationMessage = `❌ ${action.payload.message}`
+        }
+      })
+      .addCase(updateCCEEData.rejected, (state, action) => {
+        state.operationStatus = 'failed'
+        state.operationMessage = `❌ Erro na atualização: ${action.payload}`
+      })
+      
       // Fetch Anos
       .addCase(fetchAnos.pending, (state) => {
         state.loadingAnos = true
@@ -337,17 +383,17 @@ const dataSlice = createSlice({
       // Load Initial Data
       .addCase(loadInitialData.pending, (state) => {
         state.operationStatus = 'loading'
-        state.operationMessage = 'Carregando dados...'
+        state.operationMessage = 'Carregando dados do banco...'
         state.error = null
       })
       .addCase(loadInitialData.fulfilled, (state, action) => {
         state.operationStatus = 'succeeded'
-        state.operationMessage = action.payload.message
+        state.operationMessage = '✅ Dados carregados com sucesso'
         state.error = null
       })
       .addCase(loadInitialData.rejected, (state, action) => {
         state.operationStatus = 'failed'
-        state.operationMessage = action.payload
+        state.operationMessage = `❌ ${action.payload}`
         state.error = action.payload
       })
   }

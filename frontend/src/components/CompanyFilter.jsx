@@ -3,16 +3,14 @@ import { useDispatch, useSelector } from 'react-redux'
 import { 
   setSelectedEmpresa, 
   setSelectedYear, 
-  setSelectedMes, 
   fetchEmpresas, 
-  fetchMeses, 
   fetchAnos,
   fetchAggregatedData
 } from '../store/slices/dataSlice'
 
 const CompanyFilter = () => {
   const dispatch = useDispatch()
-  const { empresas, meses, anos, selectedEmpresa, selectedYear, selectedMes, loadingEmpresas, loadingMeses } = useSelector(state => state.data)
+  const { empresas, anos, selectedEmpresa, selectedYear, loadingEmpresas } = useSelector(state => state.data)
   
   // Estado para o buscador de empresas
   const [searchTerm, setSearchTerm] = useState('')
@@ -41,10 +39,8 @@ const CompanyFilter = () => {
   useEffect(() => {
     if (selectedYear) {
       dispatch(fetchEmpresas(selectedYear))
-      dispatch(fetchMeses(selectedYear))
     } else {
       dispatch(fetchEmpresas())
-      dispatch(fetchMeses())
     }
     
     // ✅ CORREÇÃO: Sempre recarrega dados quando ano muda
@@ -112,7 +108,7 @@ const CompanyFilter = () => {
     <div className="bg-white rounded-lg shadow-md p-6 mb-6">
       <h3 className="text-lg font-semibold text-gray-800 mb-4">🔧 Filtros</h3>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Filtro Ano */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -145,12 +141,12 @@ const CompanyFilter = () => {
               onClick={() => setShowTraditionalSelect(!showTraditionalSelect)}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
-              {showTraditionalSelect ? '↩️ Voltar ao buscador' : '📋 Usar lista completa'}
+              {showTraditionalSelect ? '🔍 Voltar ao buscador' : '📋 Usar lista completa'}
             </button>
           </div>
 
           {showTraditionalSelect ? (
-            // ✅ SELETOR TRADICIONAL
+            // ✅ SELETOR TRADICIONAL - LISTA COMPLETA
             <div>
               <select 
                 value={selectedEmpresa || ''}
@@ -243,29 +239,6 @@ const CompanyFilter = () => {
             </div>
           )}
         </div>
-
-        {/* Filtro Mês */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            📋 Mês
-          </label>
-          <select 
-            value={selectedMes || ''}
-            onChange={(e) => dispatch(setSelectedMes(e.target.value || null))}
-            disabled={loadingMeses}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-          >
-            <option value="">Todos os meses</option>
-            {meses.map((mes) => (
-              <option key={mes} value={mes}>
-                {mes}
-              </option>
-            ))}
-          </select>
-          {loadingMeses && (
-            <p className="text-xs text-gray-500 mt-1">Carregando meses...</p>
-          )}
-        </div>
       </div>
 
       {/* Status dos Filtros Ativos */}
@@ -282,25 +255,19 @@ const CompanyFilter = () => {
               Empresa: {selectedEmpresa}
             </span>
           )}
-          {selectedMes && (
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-              Mês: {selectedMes}
-            </span>
-          )}
-          {!selectedYear && !selectedEmpresa && !selectedMes && (
-            <span className="text-sm text-gray-600">Nenhum filtro aplicado</span>
+          {!selectedYear && !selectedEmpresa && (
+            <span className="text-sm text-gray-600">Nenhum filtro aplicado - mostrando dados consolidados</span>
           )}
         </div>
       </div>
 
       {/* Botão Limpar Todos os Filtros */}
-      {(selectedYear || selectedEmpresa || selectedMes) && (
+      {(selectedYear || selectedEmpresa) && (
         <div className="mt-4 flex justify-end">
           <button
             onClick={() => {
               dispatch(setSelectedYear(null))
               dispatch(setSelectedEmpresa(null))
-              dispatch(setSelectedMes(null))
               setSearchTerm('')
               setShowDropdown(false)
               setShowTraditionalSelect(false)

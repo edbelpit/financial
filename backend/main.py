@@ -10,6 +10,9 @@ import traceback
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import subprocess
+import sys
+from pathlib import Path
 
 # ✅ Carregar variáveis de ambiente
 load_dotenv()
@@ -111,6 +114,131 @@ class CCEEDataLoader:
         except Exception as e:
             print(f"❌ Erro ao buscar {mes_referencia}: {e}")
             return None
+
+class CCEEDataUpdater:
+    def __init__(self):
+        self.resource_ids = RESOURCE_IDS
+    
+    def get_latest_stored_month(self):
+        """Pega o último MES_REFERENCIA do nosso banco"""
+        try:
+            latest = collection.find_one(
+                {}, 
+                sort=[("MES_REFERENCIA", -1)],
+                projection={"MES_REFERENCIA": 1}
+            )
+            if latest and "MES_REFERENCIA" in latest:
+                mes_ref = latest["MES_REFERENCIA"]
+                ano = int(mes_ref[:4])
+                mes = int(mes_ref[4:6])
+                print(f"📅 Último mês no banco: {ano}-{mes:02d}")
+                return ano, mes
+        except Exception as e:
+            print(f"❌ Erro ao buscar último mês: {e}")
+        
+        print("ℹ️  Nenhum dado no banco")
+        return None, None
+    
+    def get_next_month(self, ano, mes):
+        """Calcula o próximo mês"""
+        if mes == 12:
+            return ano + 1, 1
+        else:
+            return ano, mes + 1
+    
+    def check_month_exists_in_api(self, ano, mes):
+        """Verifica se um mês existe na API CCEE"""
+        try:
+            resource_id = self.resource_ids.get(str(ano))
+            if not resource_id:
+                return False
+            
+            mes_referencia = f"{ano}{mes:02d}"
+            filters = {"MES_REFERENCIA": mes_referencia}
+            filters_json = json.dumps(filters)
+            
+            url = f"https://dadosabertos.ccee.org.br/api/3/action/datastore_search?resource_id={resource_id}&filters={filters_json}&limit=1"
+            
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            
+            exists = data.get("success") and data["result"]["records"]
+            print(f"🔍 {ano}-{mes:02d} na API: {'✅' if exists else '❌'}")
+            return exists
+            
+        except Exception as e:
+            print(f"❌ Erro ao verificar {ano}-{mes:02d}: {e}")
+            return False
+    
+    def fetch_and_save_month(self, ano, mes):
+        """Busca e salva dados de um mês"""
+        try:
+            loader = CCEEDataLoader()
+            
+            print(f"🌐 Buscando {ano}-{mes:02d}...")
+            records = loader.fetch_data_for_month(ano, mes)
+            
+            if records:
+                # Remove _ids para evitar conflitos
+                for record in records:
+                    if '_id' in record:
+                        del record['_id']
+                
+                # Insere no MongoDB
+                result = collection.insert_many(records)
+                print(f"✅ {ano}-{mes:02d}: {len(result.inserted_ids):,} registros")
+                return len(result.inserted_ids)
+            else:
+                print(f"⚠️  Sem dados para {ano}-{mes:02d}")
+                return 0
+                
+        except Exception as e:
+            print(f"❌ Erro ao carregar {ano}-{mes:02d}: {e}")
+            return 0
+    
+    def update_new_data(self):
+        """ATUALIZAÇÃO PRINCIPAL: busca o próximo mês após o último no banco"""
+        print("🔄 Buscando novos dados...")
+        
+        # Pega o último mês do nosso banco
+        last_ano, last_mes = self.get_latest_stored_month()
+        
+        if not last_ano:
+            result = {
+                "success": False,
+                "message": "Nenhum dado no banco. Use /api/load-data primeiro.",
+                "updated": False,
+                "records_updated": 0
+            }
+            return result
+        
+        # Calcula o próximo mês
+        next_ano, next_mes = self.get_next_month(last_ano, last_mes)
+        
+        print(f"🔍 Verificando mês seguinte: {next_ano}-{next_mes:02d}")
+        
+        # Verifica se existe na API
+        if self.check_month_exists_in_api(next_ano, next_mes):
+            print(f"📥 Novo mês encontrado: {next_ano}-{next_mes:02d}")
+            saved_count = self.fetch_and_save_month(next_ano, next_mes)
+            
+            result = {
+                "success": True,
+                "message": f"Dados de {next_ano}-{next_mes:02d} atualizados com sucesso",
+                "updated": True,
+                "records_updated": saved_count,
+                "month_updated": f"{next_ano}-{next_mes:02d}"
+            }
+            return result
+        else:
+            result = {
+                "success": True,
+                "message": f"Nenhum dado novo encontrado. Último mês: {last_ano}-{last_mes:02d}",
+                "updated": False,
+                "records_updated": 0,
+                "last_month": f"{last_ano}-{last_mes:02d}"
+            }
+            return result
 
 @app.get("/")
 async def root():
@@ -343,24 +471,24 @@ async def get_empresas(ano: Optional[str] = Query(None)):
         print(f"❌ Erro: {e}")
         return {"empresas": [], "quantidade": 0}
 
-@app.get("/api/meses")
-async def get_meses(ano: Optional[str] = Query(None)):
-    """Retorna lista de meses"""
-    try:
-        query = {}
-        if ano:
-            query["MES_REFERENCIA"] = {"$regex": f"^{ano}"}
+# @app.get("/api/meses")
+# async def get_meses(ano: Optional[str] = Query(None)):
+#     """Retorna lista de meses"""
+#     try:
+#         query = {}
+#         if ano:
+#             query["MES_REFERENCIA"] = {"$regex": f"^{ano}"}
             
-        meses = collection.distinct("MES_REFERENCIA", query)
-        meses.sort()
-        return {
-            "meses": meses,
-            "quantidade": len(meses)
-        }
+#         meses = collection.distinct("MES_REFERENCIA", query)
+#         meses.sort()
+#         return {
+#             "meses": meses,
+#             "quantidade": len(meses)
+#         }
         
-    except Exception as e:
-        print(f"❌ Erro: {e}")
-        return {"meses": [], "quantidade": 0}
+#     except Exception as e:
+#         print(f"❌ Erro: {e}")
+#         return {"meses": [], "quantidade": 0}
 
 @app.get("/api/anos")
 async def get_anos():
@@ -491,6 +619,27 @@ async def get_config():
         "authentication": "enabled",
         "user": MONGODB_USER
     }
+
+@app.post("/api/update-ccee-data")
+async def update_ccee_data():
+    """Endpoint para atualizar dados da CCEE - busca apenas o próximo mês"""
+    try:
+        print("🔄 Iniciando atualização de dados da CCEE...")
+        
+        updater = CCEEDataUpdater()
+        result = updater.update_new_data()
+        
+        print(f"🎯 Resultado da atualização: {result}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ Erro na atualização: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Erro ao atualizar dados: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
