@@ -1,12 +1,11 @@
 import React from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { loadInitialData, clearFilters, fetchAggregatedData } from '../store/slices/dataSlice'
+import { loadInitialData } from '../store/slices/dataSlice'
 
 const Controls = () => {
   const dispatch = useDispatch()
   const { operationStatus, operationMessage, selectedYear } = useSelector(state => state.data)
 
-  // Carregar dados com filtro de ano
   const handleLoadData = async (ano = selectedYear) => {
     try {
       await dispatch(loadInitialData(ano || null)).unwrap()
@@ -15,93 +14,30 @@ const Controls = () => {
     }
   }
 
-  // Limpar filtros e recarregar todos os dados
-  const handleClearFilters = async () => {
-    try {
-      console.log('🔄 Iniciando limpeza de filtros...')
-      
-      // Limpa os filtros no Redux
-      dispatch(clearFilters())
-      
-      console.log('✅ Filtros limpos, recarregando todos os dados...')
-      
-      // Aguarda um pouco para garantir que o Redux atualizou
-      await new Promise(resolve => setTimeout(resolve, 50))
-      
-      // Recarrega todos os dados SEM filtros
-      await dispatch(loadInitialData(null)).unwrap()
-      
-      console.log('✅ Todos os dados recarregados sem filtros')
-      
-    } catch (error) {
-      console.error('❌ Erro ao limpar filtros:', error)
-    }
-  }
-
-  // Carregar dados com ano atual (ou sem ano se não tiver selecionado)
   const handleNormalLoad = async () => {
     await handleLoadData(selectedYear)
   }
 
   return (
-    <div className="controls">
-      <div className="control-group" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="flex flex-wrap items-center gap-3">
         <button 
-          className="button"
           onClick={handleNormalLoad}
           disabled={operationStatus === 'loading'}
-          style={{ 
-            background: '#27ae60',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 16px',
-            border: 'none',
-            borderRadius: '6px',
-            color: 'white',
-            cursor: operationStatus === 'loading' ? 'not-allowed' : 'pointer',
-            opacity: operationStatus === 'loading' ? 0.6 : 1
-          }}
+          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 disabled:cursor-not-allowed"
         >
           🔄 {operationStatus === 'loading' ? 'Carregando Dados...' : 'Atualizar Dados'}
         </button>
-
-        <button 
-          className="button"
-          onClick={handleClearFilters}
-          disabled={operationStatus === 'loading'}
-          style={{ 
-            background: '#3498db',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 16px',
-            border: 'none',
-            borderRadius: '6px',
-            color: 'white',
-            cursor: operationStatus === 'loading' ? 'not-allowed' : 'pointer',
-            opacity: operationStatus === 'loading' ? 0.6 : 1
-          }}
-        >
-          🗑️ Limpar Filtros
-        </button>
         
         {operationStatus === 'succeeded' && (
-          <span style={{ color: '#27ae60', fontWeight: 'bold' }}>✅ {operationMessage}</span>
+          <span className="text-green-600 font-bold">✅ {operationMessage}</span>
         )}
         {operationStatus === 'failed' && (
-          <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>❌ {operationMessage}</span>
+          <span className="text-red-600 font-bold">❌ {operationMessage}</span>
         )}
       </div>
       
-      <div style={{ 
-        marginTop: '10px', 
-        padding: '10px', 
-        background: '#e8f4fd', 
-        borderRadius: '5px',
-        fontSize: '0.9rem',
-        color: '#2c3e50'
-      }}>
+      <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
         💡 Dados carregados do banco local
         {selectedYear && ` - Ano: ${selectedYear}`}
         {!selectedYear && ' - Todos os anos'}

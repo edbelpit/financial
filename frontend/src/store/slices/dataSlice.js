@@ -151,14 +151,14 @@ export const fetchStats = createAsyncThunk(
   }
 )
 
-// ✅ NOVA ACTION: Carregar todos os dados iniciais
+// ✅ CORREÇÃO: Carregar todos os dados iniciais
 export const loadInitialData = createAsyncThunk(
   'data/loadInitialData',
   async (ano = null, { rejectWithValue, dispatch }) => {
     try {
       console.log('🔄 Carregando todos os dados iniciais...', { ano })
       
-      // Carrega dados agregados (para o gráfico)
+      // ✅ CORREÇÃO: Passa o ano corretamente para fetchAggregatedData
       await dispatch(fetchAggregatedData(ano ? { ano } : {})).unwrap()
       
       // Carrega empresas
@@ -223,6 +223,8 @@ const dataSlice = createSlice({
     },
     setSelectedYear: (state, action) => {
       state.selectedYear = action.payload
+      // ✅ CORREÇÃO: Não recarrega dados automaticamente aqui
+      // O useEffect no CompanyFilter vai cuidar disso
     },
     setSelectedMes: (state, action) => {
       state.selectedMes = action.payload

@@ -8,8 +8,11 @@ import {
   Title,
   Tooltip,
   Legend,
+  LineElement,
+  PointElement,
 } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
+import { processEnergyData, calculateMWmForPeriod } from '../utils/energyCalculations'
 
 ChartJS.register(
   CategoryScale,
@@ -17,139 +20,158 @@ ChartJS.register(
   BarElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  LineElement,
+  PointElement
 )
 
 const EnergyChart = () => {
-  const { aggregatedData, selectedEmpresa, selectedYear } = useSelector(state => state.data)
+  const { aggregatedData, selectedEmpresa, selectedYear, loading } = useSelector(state => state.data)
 
-  console.log('📊 Dados agregados para gráfico:', aggregatedData)
-  console.log('🔍 Estrutura completa:', JSON.stringify(aggregatedData, null, 2))
+  const processedData = useMemo(() => {
+    return processEnergyData(aggregatedData)
+  }, [aggregatedData])
 
-  // FILTRO E PROCESSAMENTO DOS DADOS
+  // ✅ CORREÇÃO: Calcular totais CORRETAMENTE
+  const chartStats = useMemo(() => {
+    if (!processedData || processedData.length === 0) {
+      return {
+        totalCompraMWh: 0,
+        totalVendaMWh: 0,
+        totalCompraMWm: 0,
+        totalVendaMWm: 0,
+        totalNetMWm: 0,
+        totalHoras: 0,
+        meses: 0
+      }
+    }
+
+    const totalCompraMWh = processedData.reduce((sum, item) => sum + (item.compraMWh || 0), 0)
+    const totalVendaMWh = processedData.reduce((sum, item) => sum + (item.vendaMWh || 0), 0)
+    
+    const totalCompraMWm = calculateMWmForPeriod(totalCompraMWh, processedData)
+    const totalVendaMWm = calculateMWmForPeriod(totalVendaMWh, processedData)
+    const totalNetMWm = totalCompraMWm - totalVendaMWm
+    
+    const totalHoras = processedData.reduce((sum, item) => sum + (item.horasNoMes || 0), 0)
+    const meses = processedData.length
+
+    return {
+      totalCompraMWh,
+      totalVendaMWh,
+      totalCompraMWm,
+      totalVendaMWm,
+      totalNetMWm,
+      totalHoras,
+      meses
+    }
+  }, [processedData])
+
   const chartData = useMemo(() => {
-    if (!aggregatedData || !Array.isArray(aggregatedData) || aggregatedData.length === 0) {
-      console.log('❌ Nenhum dado disponível')
+    if (!processedData || processedData.length === 0) {
       return null
     }
 
-    console.log('🔍 Primeiro item da estrutura:', aggregatedData[0])
-
-    let labels = []
-    let compraData = []
-    let vendaData = []
-
-    // Estratégia 1: Dados da API com filtro por ano (estrutura mais comum)
-    if (aggregatedData[0].mesReferencia) {
-      console.log('📅 Estrutura: Dados por mêsReferencia')
-      
-      // Ordenar por mês
-      const sortedData = [...aggregatedData].sort((a, b) => {
-        return a.mesReferencia.localeCompare(b.mesReferencia)
-      })
-
-      labels = sortedData.map(item => {
-        // Formatar label para exibição (ex: "2025-01" → "Jan/2025")
-        const [ano, mes] = item.mesReferencia.split('-')
-        const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-        return `${meses[parseInt(mes) - 1]}/${ano}`
-      })
-      
-      compraData = sortedData.map(item => item.quantidadeCompra || item.compra || 0)
-      vendaData = sortedData.map(item => item.quantidadeVenda || item.venda || 0)
-    }
-    // Estrutura 2: Dados agregados com _id
-    else if (aggregatedData[0]._id) {
-      console.log('📅 Estrutura: Dados agregados com _id')
-      
-      const sortedData = [...aggregatedData].sort((a, b) => {
-        const mesA = a._id.mes || a._id.mesReferencia || ''
-        const mesB = b._id.mes || b._id.mesReferencia || ''
-        return mesA.localeCompare(mesB)
-      })
-
-      labels = sortedData.map(item => {
-        const mes = item._id.mes || item._id.mesReferencia
-        const [ano, mesNum] = mes.split('-')
-        const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-        return `${meses[parseInt(mesNum) - 1]}/${ano}`
-      })
-      
-      compraData = sortedData.map(item => item.total_compra || item.quantidadeCompra || 0)
-      vendaData = sortedData.map(item => item.total_venda || item.quantidadeVenda || 0)
-    }
-    // Estrutura 3: Tentativa de adaptação automática
-    else {
-      console.log('⚠️ Estrutura desconhecida, tentando adaptar...')
-      
-      // Encontrar campos automaticamente
-      const firstItem = aggregatedData[0]
-      const monthKey = Object.keys(firstItem).find(key => 
-        key.toLowerCase().includes('mes') || key.toLowerCase().includes('month')
-      )
-      const compraKey = Object.keys(firstItem).find(key => 
-        key.toLowerCase().includes('compra') || key.toLowerCase().includes('buy')
-      )
-      const vendaKey = Object.keys(firstItem).find(key => 
-        key.toLowerCase().includes('venda') || key.toLowerCase().includes('sell')
-      )
-
-      console.log('🔍 Chaves encontradas:', { monthKey, compraKey, vendaKey })
-
-      const sortedData = [...aggregatedData].sort((a, b) => {
-        const valA = monthKey ? (a[monthKey] || '') : ''
-        const valB = monthKey ? (b[monthKey] || '') : ''
-        return valA.localeCompare(valB)
-      })
-
-      labels = sortedData.map(item => 
-        monthKey ? item[monthKey] : `Item ${sortedData.indexOf(item) + 1}`
-      )
-      compraData = sortedData.map(item => 
-        compraKey ? (item[compraKey] || 0) : 0
-      )
-      vendaData = sortedData.map(item => 
-        vendaKey ? (item[vendaKey] || 0) : 0
-      )
-    }
-
-    if (labels.length === 0 || (compraData.every(val => val === 0) && vendaData.every(val => val === 0))) {
-      console.log('❌ Dados insuficientes ou todos zeros')
-      return null
-    }
-
-    console.log('✅ Dados processados:', { 
-      labels, 
-      compraData, 
-      vendaData,
-      totalCompra: compraData.reduce((a, b) => a + b, 0),
-      totalVenda: vendaData.reduce((a, b) => a + b, 0)
+    const sortedData = [...processedData].sort((a, b) => {
+      const mesA = a.mes ? a.mes.toString() : (a._id ? a._id.toString() : '')
+      const mesB = b.mes ? b.mes.toString() : (b._id ? b._id.toString() : '')
+      return mesA.localeCompare(mesB)
     })
+
+    const labels = sortedData.map(item => {
+      const mesStr = item.mes ? item.mes.toString() : (item._id ? item._id.toString() : '')
+      const ano = mesStr.substring(0, 4)
+      const mesNum = mesStr.substring(4, 6)
+      const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dec']
+      return `${meses[parseInt(mesNum) - 1]}-${ano.substring(2)}`
+    })
+
+    const compraData = sortedData.map(item => item.compraMWm || 0)
+    const vendaData = sortedData.map(item => item.vendaMWm || 0)
+    const netData = sortedData.map(item => item.netMWm || 0)
+
+    if (labels.length === 0) {
+      return null
+    }
 
     return {
       labels,
       datasets: [
         {
-          label: 'Contratação Compra (MWh)',
+          label: 'Compra (MWm)',
           data: compraData,
           backgroundColor: 'rgba(54, 162, 235, 0.6)',
           borderColor: 'rgba(54, 162, 235, 1)',
           borderWidth: 1,
+          yAxisID: 'y',
         },
         {
-          label: 'Contratação Venda (MWh)',
+          label: 'Venda (MWm)',
           data: vendaData,
           backgroundColor: 'rgba(255, 99, 132, 0.6)',
           borderColor: 'rgba(255, 99, 132, 1)',
           borderWidth: 1,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Net (Compra - Venda)',
+          data: netData,
+          type: 'line',
+          borderColor: 'rgba(75, 192, 192, 1)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          borderWidth: 2,
+          pointBackgroundColor: 'rgba(75, 192, 192, 1)',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1,
+          pointRadius: 4,
+          yAxisID: 'y1',
         },
       ],
     }
-  }, [aggregatedData]) // Removi selectedYear da dependência se a API já filtra
+  }, [processedData])
+
+  // ✅ RANGE OTIMIZADO para valores pequenos
+  const getNetAxisRange = useMemo(() => {
+    if (!processedData || processedData.length === 0) {
+      return { min: -0.1, max: 0.1 }
+    }
+    
+    const netValues = processedData.map(item => item.netMWm || 0)
+    const maxNet = Math.max(...netValues)
+    const minNet = Math.min(...netValues)
+    
+    // ✅ ESTRATÉGIA: Se os valores são muito pequenos, usar range fixo
+    const absMax = Math.max(Math.abs(minNet), Math.abs(maxNet))
+    
+    if (absMax < 0.01) {
+      // Valores muito pequenos: usar range simétrico
+      const range = Math.max(0.0001, absMax * 2) // Garante um range mínimo visível
+      return {
+        min: -range,
+        max: range
+      }
+    } else if (absMax < 0.1) {
+      // Valores pequenos: adicionar margem de 50%
+      return {
+        min: minNet * 1.5,
+        max: maxNet * 1.5
+      }
+    } else {
+      // Valores normais: usar mínimo e máximo
+      return {
+        min: minNet,
+        max: maxNet
+      }
+    }
+  }, [processedData])
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
     plugins: {
       legend: {
         position: 'top',
@@ -166,7 +188,15 @@ const EnergyChart = () => {
       tooltip: {
         callbacks: {
           label: function(context) {
-            return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} MWh`
+            let label = context.dataset.label || ''
+            if (label) {
+              label += ': '
+            }
+            if (context.parsed.y !== null) {
+              // ✅ 6 CASAS DECIMAIS para todos os valores
+              label += `${context.parsed.y.toFixed(6)} MWm`
+            }
+            return label
           }
         }
       }
@@ -179,65 +209,104 @@ const EnergyChart = () => {
         }
       },
       y: {
+        type: 'linear',
+        display: true,
+        position: 'left',
         title: {
           display: true,
-          text: 'Valor de Contratação (MWh)'
+          text: 'Compra/Venda (MWm)'
         },
-        beginAtZero: true
-      }
+        beginAtZero: true,
+        ticks: {
+          // ✅ 6 CASAS DECIMAIS no eixo Y
+          callback: function(value) {
+            return value.toFixed(6) + ' MWm'
+          }
+        }
+      },
+      y1: {
+        type: 'linear',
+        display: true,
+        position: 'right',
+        title: {
+          display: true,
+          text: 'Net (MWm)'
+        },
+        // ✅ RANGE OTIMIZADO
+        min: getNetAxisRange.min,
+        max: getNetAxisRange.max,
+        ticks: {
+          // ✅ 6 CASAS DECIMAIS no eixo Y1
+          callback: function(value) {
+            return value.toFixed(6) + ' MWm'
+          },
+          maxTicksLimit: 6,
+          precision: 6
+        },
+        grid: {
+          drawOnChartArea: false,
+        },
+      },
     }
   }
 
-  if (!chartData) {
+  if (loading) {
     return (
-      <div className="chart-wrapper">
-        <h3>📈 Gráfico de Contratação</h3>
-        <div className="no-data">
-          <p>Nenhum dado disponível para exibir o gráfico.</p>
-          <p style={{ fontSize: '0.9rem', color: '#666' }}>
-            {aggregatedData && aggregatedData.length > 0 
-              ? `Dados recebidos mas não puderam ser processados. Verifique o console.`
-              : 'Selecione uma empresa ou verifique se os dados foram carregados.'
-            }
-          </p>
-          <div style={{ 
-            marginTop: '10px', 
-            padding: '10px', 
-            background: '#f5f5f5', 
-            borderRadius: '5px',
-            fontSize: '0.8rem' 
-          }}>
-            <strong>Debug Info:</strong><br />
-            - Dados recebidos: {aggregatedData ? aggregatedData.length : 0} registros<br />
-            - Empresa: {selectedEmpresa || 'Nenhuma'}<br />
-            - Ano: {selectedYear || 'Todos'}<br />
-            - Estrutura: {aggregatedData && aggregatedData[0] ? JSON.stringify(Object.keys(aggregatedData[0])) : 'N/A'}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          📈 Gráfico de Contratação (MWm)
+          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-800"></div>
+            Carregando...
+          </span>
+        </h3>
+        <div className="h-96 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Carregando dados do gráfico...</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {selectedYear && `Filtrando por: ${selectedYear}`}
+              {selectedEmpresa && ` - ${selectedEmpresa}`}
+            </p>
           </div>
         </div>
       </div>
     )
   }
 
+  if (!chartData) {
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">📈 Gráfico de Contratação (MWm)</h3>
+        <div className="text-center py-8">
+          <p className="text-gray-600 mb-2">Nenhum dado disponível para exibir o gráfico.</p>
+          <p className="text-sm text-gray-500">
+            {aggregatedData && aggregatedData.length > 0 
+              ? `Dados recebidos mas não puderam ser processados. Verifique o console.`
+              : 'Selecione uma empresa ou verifique se os dados foram carregados.'
+            }
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="chart-wrapper">
-      <h3>📈 Gráfico de Contratação</h3>
-      <div style={{ height: '400px' }}>
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h3 className="text-lg font-semibold text-gray-800 mb-4">📈 Gráfico de Contratação (MWm)</h3>
+      <div className="h-96">
         <Bar data={chartData} options={chartOptions} />
       </div>
       
-      <div style={{ 
-        fontSize: '0.8rem', 
-        color: '#666', 
-        marginTop: '10px',
-        padding: '10px',
-        background: '#f5f5f5',
-        borderRadius: '5px'
-      }}>
-        <strong>Resumo dos Dados:</strong><br />
+      {/* ✅ INFO COM 6 CASAS DECIMAIS */}
+      <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
+        <strong>Resumo do Período (Cálculo Correto):</strong><br />
         - Filtro: {selectedYear ? `Ano ${selectedYear}` : 'Todos os anos'} {selectedEmpresa ? `- ${selectedEmpresa}` : ''}<br />
-        - Total Compra: {chartData.datasets[0].data.reduce((a, b) => a + b, 0).toFixed(2)} MWh<br />
-        - Total Venda: {chartData.datasets[1].data.reduce((a, b) => a + b, 0).toFixed(2)} MWh<br />
-        - Períodos: {chartData.labels.length} meses
+        - Compra: {chartStats.totalCompraMWm.toFixed(6)} MWm ({chartStats.totalCompraMWh.toLocaleString('pt-BR')} MWh)<br />
+        - Venda: {chartStats.totalVendaMWm.toFixed(6)} MWm ({chartStats.totalVendaMWh.toLocaleString('pt-BR')} MWh)<br />
+        - Net: {chartStats.totalNetMWm.toFixed(6)} MWm (Compra - Venda)<br />
+        - Período: {chartStats.meses} meses • {chartStats.totalHoras.toLocaleString('pt-BR')} horas totais<br />
+        - <em>MWm = ΣMWh / ΣHoras</em>
       </div>
     </div>
   )

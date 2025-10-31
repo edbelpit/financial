@@ -1,98 +1,65 @@
 import React, { useEffect } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
-import { 
-  fetchData, 
-  fetchAggregatedData, 
-  fetchEmpresas, 
-  fetchMeses,
-  fetchAnos,
-  clearError 
-} from './store/slices/dataSlice'
-import EnergyChart from './components/EnergyChart'
-import DataSummary from './components/DataSummary'
-import CompanyFilter from './components/CompanyFilter'
-import YearFilter from './components/YearFilter'
+import { useDispatch } from 'react-redux'
+import { loadInitialData } from './store/slices/dataSlice'
 import Controls from './components/Controls'
-import './App.css'
+import CompanyFilter from './components/CompanyFilter'
+import EnergyChart from './components/EnergyChart'
+import DataSummary from './components/DataSummary'  // ✅ Use o DataSummary que você já tem
 
 function App() {
   const dispatch = useDispatch()
-  const { loading, error, lastUpdate, selectedEmpresa } = useSelector(state => state.data)
 
   useEffect(() => {
-    dispatch(clearError())
-    loadInitialData()
+    // Carrega dados iniciais
+    dispatch(loadInitialData(null))
   }, [dispatch])
 
-  const loadInitialData = () => {
-    // Carrega anos disponíveis primeiro
-    dispatch(fetchAnos())
-    dispatch(fetchEmpresas())
-    dispatch(fetchMeses())
-    dispatch(fetchData())
-    dispatch(fetchAggregatedData())
-  }
-
-  const handleRetry = () => {
-    dispatch(clearError())
-    loadInitialData()
-  }
-
-  if (loading) {
-    return (
-      <div className="loading">
-        <div>📡 Carregando dados do MongoDB...</div>
-        <div style={{ fontSize: '0.8rem', marginTop: '10px' }}>
-          Conectando ao banco de dados
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="error">
-        <div>❌ Erro: {error}</div>
-        <button 
-          onClick={handleRetry}
-          className="retry-button"
-        >
-          Tentar Novamente
-        </button>
-        <div style={{ fontSize: '0.8rem', marginTop: '10px' }}>
-          Verifique se o MongoDB está rodando na porta 27017
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="App">
-      <header className="app-header">
-        <h1>Dashboard CCEE - Contratação de Energia</h1>
-        <p>Dados históricos de 2024 e 2025</p>
-        
-        <div className="header-info">
-          {lastUpdate && (
-            <div className="last-update">
-              📅 Última atualização: {new Date(lastUpdate).toLocaleString()}
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                📊 CCEE Energy Dashboard
+              </h1>
+              <p className="text-sm text-gray-600">
+                Monitoramento de Contratação de Energia
+              </p>
             </div>
-          )}
-          <div className="data-source">
-            🗄️ Fonte: MongoDB Local
+            <div className="text-sm text-gray-500">
+              v{import.meta.env.VITE_APP_VERSION}
+            </div>
           </div>
         </div>
       </header>
-      
-      <main className="app-main">
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Controls */}
         <Controls />
-        <div className="filters-container">
-          <YearFilter />
-          <CompanyFilter />
+
+        {/* CompanyFilter */}
+        <CompanyFilter />
+
+        {/* DataSummary (estatísticas) */}
+        <div className="mb-6">
+          <DataSummary />
         </div>
-        <DataSummary />
+
+        {/* Gráfico */}
         <EnergyChart />
       </main>
+
+      {/* Footer */}
+      <footer className="bg-white border-t mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="text-center text-sm text-gray-500">
+            © 2024 CCEE Energy Dashboard - Desenvolvido com React & Tailwind CSS
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
