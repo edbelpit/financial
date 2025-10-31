@@ -300,6 +300,7 @@ async def get_dados_agregados(
             },
             {
                 "$project": {
+                    "mes": "$_id",
                     group_by: "$_id",
                     "total_venda": 1,
                     "total_compra": 1,

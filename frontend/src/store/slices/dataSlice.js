@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import axios from 'axios'
 
-// ✅ Usa variável de ambiente do Vite
+// ✅ Usa variável de ambiente do Vite do frontend
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 console.log(`🌐 API URL: ${API_BASE_URL}`)
@@ -18,7 +18,6 @@ export const fetchAnos = createAsyncThunk(
     try {
       console.log('🔄 Buscando anos disponíveis...')
       const response = await api.get('/api/anos')
-      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
       const anos = response.data.anos || response.data
       console.log(`✅ Anos recebidos: ${Array.isArray(anos) ? anos.length : 'undefined'} anos`)
       return anos
@@ -48,7 +47,6 @@ export const fetchData = createAsyncThunk(
       
       console.log('🔄 Buscando dados do MongoDB...', { filters, url })
       const response = await api.get(url)
-      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
       const data = response.data.data || response.data
       console.log(`✅ Dados recebidos: ${Array.isArray(data) ? data.length : 'undefined'} registros`)
       return data
@@ -63,7 +61,7 @@ export const fetchData = createAsyncThunk(
   }
 )
 
-// Buscar dados agregados - CORRIGIDO para aceitar ano
+// Buscar dados agregados
 export const fetchAggregatedData = createAsyncThunk(
   'data/fetchAggregatedData',
   async ({ empresa = null, ano = null } = {}, { rejectWithValue }) => {
@@ -97,7 +95,6 @@ export const fetchEmpresas = createAsyncThunk(
       const url = ano ? `/api/empresas?ano=${ano}` : '/api/empresas'
       console.log('🔄 Buscando empresas...', { ano, url })
       const response = await api.get(url)
-      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
       const empresas = response.data.empresas || response.data
       console.log(`✅ Empresas recebidas: ${Array.isArray(empresas) ? empresas.length : 'undefined'} empresas`)
       return empresas
@@ -120,7 +117,6 @@ export const fetchMeses = createAsyncThunk(
       const url = ano ? `/api/meses?ano=${ano}` : '/api/meses'
       console.log('🔄 Buscando meses...', { ano, url })
       const response = await api.get(url)
-      // ✅ CORREÇÃO: Extrai o array de dentro do objeto
       const meses = response.data.meses || response.data
       console.log(`✅ Meses recebidos: ${Array.isArray(meses) ? meses.length : 'undefined'} meses`)
       return meses
@@ -155,22 +151,31 @@ export const fetchStats = createAsyncThunk(
   }
 )
 
-// Carregar dados via API - ATUALIZADO para usar force_update
-export const loadData = createAsyncThunk(
-  'data/loadData',
-  async ({ ano, meses = null, force_update = false }, { rejectWithValue }) => {
+// ✅ NOVA ACTION: Carregar todos os dados iniciais
+export const loadInitialData = createAsyncThunk(
+  'data/loadInitialData',
+  async (ano = null, { rejectWithValue, dispatch }) => {
     try {
-      console.log('🔄 Carregando dados via API...', { ano, meses, force_update })
-      const payload = { ano, meses, force_update }
-      const response = await api.post('/api/load-data', payload)
-      console.log('✅ Dados carregados via API')
-      return response.data
+      console.log('🔄 Carregando todos os dados iniciais...', { ano })
+      
+      // Carrega dados agregados (para o gráfico)
+      await dispatch(fetchAggregatedData(ano ? { ano } : {})).unwrap()
+      
+      // Carrega empresas
+      await dispatch(fetchEmpresas(ano)).unwrap()
+      
+      // Carrega meses
+      await dispatch(fetchMeses(ano)).unwrap()
+      
+      // Carrega anos disponíveis
+      await dispatch(fetchAnos()).unwrap()
+      
+      console.log('✅ Todos os dados iniciais carregados com sucesso')
+      return { success: true, message: 'Dados carregados com sucesso' }
     } catch (error) {
-      console.error('❌ Erro ao carregar dados:', error)
+      console.error('❌ Erro ao carregar dados iniciais:', error)
       return rejectWithValue(
-        error.response?.data?.detail || 
-        error.message || 
-        'Erro ao carregar dados'
+        error.message || 'Erro ao carregar dados iniciais'
       )
     }
   }
@@ -253,7 +258,6 @@ const dataSlice = createSlice({
       })
       .addCase(fetchAnos.fulfilled, (state, action) => {
         state.loadingAnos = false
-        // ✅ CORREÇÃO: Garante que seja um array
         state.anos = Array.isArray(action.payload) ? action.payload : []
         state.error = null
       })
@@ -269,7 +273,6 @@ const dataSlice = createSlice({
       })
       .addCase(fetchData.fulfilled, (state, action) => {
         state.loading = false
-        // ✅ CORREÇÃO: Garante que seja um array
         state.rawData = Array.isArray(action.payload) ? action.payload : []
         state.dataLoaded = true
         state.lastUpdate = new Date().toISOString()
@@ -286,8 +289,9 @@ const dataSlice = createSlice({
       })
       .addCase(fetchAggregatedData.fulfilled, (state, action) => {
         state.loading = false
-        // ✅ CORREÇÃO: Garante que seja um array
         state.aggregatedData = Array.isArray(action.payload) ? action.payload : []
+        state.dataLoaded = true
+        state.lastUpdate = new Date().toISOString()
       })
       .addCase(fetchAggregatedData.rejected, (state, action) => {
         state.loading = false
@@ -300,7 +304,6 @@ const dataSlice = createSlice({
       })
       .addCase(fetchEmpresas.fulfilled, (state, action) => {
         state.loadingEmpresas = false
-        // ✅ CORREÇÃO: Garante que seja um array
         state.empresas = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchEmpresas.rejected, (state, action) => {
@@ -314,7 +317,6 @@ const dataSlice = createSlice({
       })
       .addCase(fetchMeses.fulfilled, (state, action) => {
         state.loadingMeses = false
-        // ✅ CORREÇÃO: Garante que seja um array
         state.meses = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchMeses.rejected, (state, action) => {
@@ -330,23 +332,18 @@ const dataSlice = createSlice({
         state.error = action.payload
       })
       
-      // Load Data
-      .addCase(loadData.pending, (state) => {
+      // Load Initial Data
+      .addCase(loadInitialData.pending, (state) => {
         state.operationStatus = 'loading'
-        state.operationMessage = 'Carregando dados da CCEE...'
+        state.operationMessage = 'Carregando dados...'
         state.error = null
       })
-      .addCase(loadData.fulfilled, (state, action) => {
+      .addCase(loadInitialData.fulfilled, (state, action) => {
         state.operationStatus = 'succeeded'
         state.operationMessage = action.payload.message
         state.error = null
-        
-        // Recarrega os dados após carregamento bem-sucedido
-        dispatch(fetchData())
-        dispatch(fetchAggregatedData())
-        dispatch(fetchEmpresas())
       })
-      .addCase(loadData.rejected, (state, action) => {
+      .addCase(loadInitialData.rejected, (state, action) => {
         state.operationStatus = 'failed'
         state.operationMessage = action.payload
         state.error = action.payload
