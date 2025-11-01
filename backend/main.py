@@ -10,9 +10,7 @@ import traceback
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-import subprocess
-import sys
-from pathlib import Path
+import time
 
 # ✅ Carregar variáveis de ambiente
 load_dotenv()
@@ -33,12 +31,6 @@ MONGODB_URI = f"mongodb://{MONGODB_USER}:{MONGODB_PASS}@{MONGODB_HOST}:{MONGODB_
 # ✅ CORS a partir do .env
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000")
 allowed_origins = [origin.strip() for origin in CORS_ORIGINS.split(",")]
-
-# ✅ Resource IDs da API CCEE
-RESOURCE_IDS = {
-    "2024": os.getenv("CCEE_RESOURCE_2024", "f6b478a0-bf4d-4d18-8f7f-067d01fefbd0"),
-    "2025": os.getenv("CCEE_RESOURCE_2025", "e14c30bf-e02e-40a5-afd2-0491e41e03c7")
-}
 
 # ✅ Conexão com MongoDB LOCAL COM autenticação
 try:
@@ -78,46 +70,20 @@ def safe_float(value):
     except (TypeError, ValueError):
         return 0.0
 
-class CCEEDataLoader:
-    def __init__(self):
-        self.resource_ids = RESOURCE_IDS
-    
-    def fetch_data_for_month(self, ano, mes):
-        """Busca dados de um mês específico da API CCEE"""
-        resource_id = self.resource_ids.get(ano)
-        if not resource_id:
-            print(f"❌ Resource ID não encontrado para o ano {ano}")
-            return None
-        
-        mes_referencia = f"{ano}{mes:02d}"
-        filters = {"MES_REFERENCIA": mes_referencia}
-        filters_json = json.dumps(filters)
-        
-        url = f"https://dadosabertos.ccee.org.br/api/3/action/datastore_search?resource_id={resource_id}&filters={filters_json}"
-        
-        print(f"🌐 Buscando {mes_referencia}...")
-        
-        try:
-            response = requests.get(url, timeout=60)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data.get("success"):
-                records = data["result"]["records"]
-                print(f"✅ {mes_referencia}: {len(records)} registros")
-                return records
-            else:
-                print(f"❌ Erro na API para {mes_referencia}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Erro ao buscar {mes_referencia}: {e}")
-            return None
-
 class CCEEDataUpdater:
     def __init__(self):
-        self.resource_ids = RESOURCE_IDS
+        # ✅ CORRETO: Buscar diretamente do .env (única fonte)
+        self.resource_ids = {
+            "2024": os.getenv("CCEE_RESOURCE_2024"),
+            "2025": os.getenv("CCEE_RESOURCE_2025")
+        }
+        # ✅ VALIDAÇÃO: Verificar se carregou corretamente
+        if not all(self.resource_ids.values()):
+            print("❌ ERRO: Resource IDs não carregados do .env")
+            print(f"   CCEE_RESOURCE_2024: {self.resource_ids['2024']}")
+            print(f"   CCEE_RESOURCE_2025: {self.resource_ids['2025']}")
+        else:
+            print("✅ Resource IDs carregados do .env com sucesso")
     
     def get_latest_stored_month(self):
         """Pega o último MES_REFERENCIA do nosso banco"""
@@ -149,8 +115,10 @@ class CCEEDataUpdater:
     def check_month_exists_in_api(self, ano, mes):
         """Verifica se um mês existe na API CCEE"""
         try:
+            # ✅ CORREÇÃO: Converter ano para string
             resource_id = self.resource_ids.get(str(ano))
             if not resource_id:
+                print(f"❌ Resource ID não encontrado para o ano {ano} (chaves disponíveis: {list(self.resource_ids.keys())})")
                 return False
             
             mes_referencia = f"{ano}{mes:02d}"
@@ -170,24 +138,98 @@ class CCEEDataUpdater:
             print(f"❌ Erro ao verificar {ano}-{mes:02d}: {e}")
             return False
     
-    def fetch_and_save_month(self, ano, mes):
-        """Busca e salva dados de um mês"""
+    def fetch_all_records_for_month(self, ano, mes):
+        """Busca TODOS os registros de um mês com paginação CORRIGIDA"""
+        resource_id = self.resource_ids.get(str(ano))
+        if not resource_id:
+            print(f"❌ Resource ID não encontrado para o ano {ano}")
+            return None
+        
+        mes_referencia = f"{ano}{mes:02d}"
+        filters = {"MES_REFERENCIA": mes_referencia}
+        filters_json = json.dumps(filters)
+        
+        print(f"🌐 Buscando TODOS os registros de {mes_referencia}...")
+        
+        all_records = []
+        offset = 0
+        limit = 100  # API CCEE tem limite de 100 por página
+        
         try:
-            loader = CCEEDataLoader()
+            page = 1
+            while True:
+                url = f"https://dadosabertos.ccee.org.br/api/3/action/datastore_search?resource_id={resource_id}&filters={filters_json}&limit={limit}&offset={offset}"
+                
+                print(f"📄 Página {page} - Offset: {offset}")
+                
+                response = requests.get(url, timeout=60)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                if not data.get("success"):
+                    print(f"❌ Erro na API para {mes_referencia}")
+                    break
+                
+                records = data["result"]["records"]
+                if not records:
+                    print(f"✅ Todas as páginas processadas")
+                    break
+                
+                all_records.extend(records)
+                print(f"✅ Página {page}: {len(records)} registros")
+                
+                # Verifica se há mais páginas
+                if len(records) < limit:
+                    print(f"✅ Última página alcançada")
+                    break
+                
+                offset += limit
+                page += 1
+                
+                # Pequena pausa para não sobrecarregar a API
+                time.sleep(0.1)
             
+            print(f"✅ {mes_referencia}: {len(all_records)} registros baixados no total")
+            return all_records
+            
+        except Exception as e:
+            print(f"❌ Erro ao buscar {mes_referencia}: {e}")
+            return None
+    
+    def save_data_fast_insert(self, records):
+        """Salva dados no MongoDB de forma otimizada"""
+        if not records:
+            return 0
+        
+        try:
+            # Remove _ids para evitar conflitos
+            for record in records:
+                if '_id' in record:
+                    del record['_id']
+            
+            # Insere no MongoDB
+            result = collection.insert_many(records)
+            print(f"💾 Salvos {len(result.inserted_ids)} registros no MongoDB")
+            return len(result.inserted_ids)
+            
+        except Exception as e:
+            print(f"❌ Erro ao salvar dados: {e}")
+            return 0
+    
+    def fetch_and_save_month(self, ano, mes):
+        """Busca e salva dados de um mês COM PAGINAÇÃO CORRIGIDA"""
+        try:
             print(f"🌐 Buscando {ano}-{mes:02d}...")
-            records = loader.fetch_data_for_month(ano, mes)
+            
+            # ✅ USAR o método com paginação corrigida
+            records = self.fetch_all_records_for_month(ano, mes)
             
             if records:
-                # Remove _ids para evitar conflitos
-                for record in records:
-                    if '_id' in record:
-                        del record['_id']
-                
-                # Insere no MongoDB
-                result = collection.insert_many(records)
-                print(f"✅ {ano}-{mes:02d}: {len(result.inserted_ids):,} registros")
-                return len(result.inserted_ids)
+                # ✅ USAR o método otimizado de salvamento
+                saved_count = self.save_data_fast_insert(records)
+                print(f"✅ {ano}-{mes:02d}: {saved_count:,} registros")
+                return saved_count
             else:
                 print(f"⚠️  Sem dados para {ano}-{mes:02d}")
                 return 0
@@ -206,7 +248,7 @@ class CCEEDataUpdater:
         if not last_ano:
             result = {
                 "success": False,
-                "message": "Nenhum dado no banco. Use /api/load-data primeiro.",
+                "message": "Nenhum dado no banco. Use data_loader.py primeiro.",
                 "updated": False,
                 "records_updated": 0
             }
@@ -276,69 +318,6 @@ async def health_check():
         "authentication": "enabled",
         "user": MONGODB_USER
     }
-
-@app.post("/api/load-data")
-async def load_data(
-    ano: str,
-    meses: Optional[List[int]] = None
-):
-    """Carrega dados específicos no MongoDB"""
-    try:
-        if meses is None:
-            meses = list(range(1, 13))
-        
-        loader = CCEEDataLoader()
-        total_records = 0
-        months_processed = 0
-        
-        for mes in meses:
-            mes_referencia = f"{ano}{mes:02d}"
-            
-            # Verifica se já existe
-            existing_count = collection.count_documents({"MES_REFERENCIA": mes_referencia})
-            if existing_count > 0:
-                print(f"⏭️  {mes_referencia} já existe ({existing_count} registros), pulando...")
-                continue
-            
-            # Busca dados
-            records = loader.fetch_data_for_month(ano, mes)
-            
-            if records:
-                # Remove _ids para evitar conflitos
-                for record in records:
-                    if '_id' in record:
-                        del record['_id']
-                
-                # Insere no MongoDB
-                result = collection.insert_many(records)
-                total_records += len(result.inserted_ids)
-                months_processed += 1
-                print(f"💾 {mes_referencia} salvo no MongoDB")
-            else:
-                print(f"⚠️  Nenhum dado encontrado para {mes_referencia}")
-        
-        # Cria índices se necessário
-        if total_records > 0:
-            try:
-                collection.create_index("NOME_EMPRESARIAL")
-                collection.create_index("MES_REFERENCIA")
-                collection.create_index([("NOME_EMPRESARIAL", 1), ("MES_REFERENCIA", 1)])
-                print("📊 Índices criados/atualizados")
-            except Exception as e:
-                print(f"⚠️  Erro ao criar índices: {e}")
-        
-        return {
-            "message": f"Dados carregados com sucesso!",
-            "ano": ano,
-            "meses_processados": months_processed,
-            "registros_inseridos": total_records,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        print(f"❌ Erro ao carregar dados: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro ao carregar dados: {str(e)}")
 
 @app.get("/api/dados")
 async def get_dados(
@@ -471,25 +450,6 @@ async def get_empresas(ano: Optional[str] = Query(None)):
         print(f"❌ Erro: {e}")
         return {"empresas": [], "quantidade": 0}
 
-# @app.get("/api/meses")
-# async def get_meses(ano: Optional[str] = Query(None)):
-#     """Retorna lista de meses"""
-#     try:
-#         query = {}
-#         if ano:
-#             query["MES_REFERENCIA"] = {"$regex": f"^{ano}"}
-            
-#         meses = collection.distinct("MES_REFERENCIA", query)
-#         meses.sort()
-#         return {
-#             "meses": meses,
-#             "quantidade": len(meses)
-#         }
-        
-#     except Exception as e:
-#         print(f"❌ Erro: {e}")
-#         return {"meses": [], "quantidade": 0}
-
 @app.get("/api/anos")
 async def get_anos():
     """Retorna lista de anos"""
@@ -614,7 +574,6 @@ async def get_config():
         "database_name": DATABASE_NAME,
         "api_port": API_PORT,
         "cors_origins": allowed_origins,
-        "resource_ids": RESOURCE_IDS,
         "environment": "Development Local",
         "authentication": "enabled",
         "user": MONGODB_USER

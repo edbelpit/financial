@@ -1,17 +1,29 @@
 import React, { useEffect } from 'react'
 import { useDispatch } from 'react-redux'
-import { loadInitialData } from './store/slices/dataSlice'
+import { fetchAggregatedData, fetchEmpresas, fetchAnos } from './store/slices/dataSlice'
 import Controls from './components/Controls'
 import CompanyFilter from './components/CompanyFilter'
 import EnergyChart from './components/EnergyChart'
-import DataSummary from './components/DataSummary'  // ✅ Use o DataSummary que você já tem
+import DataSummary from './components/DataSummary'
 
 function App() {
   const dispatch = useDispatch()
 
   useEffect(() => {
-    // Carrega dados iniciais
-    dispatch(loadInitialData(null))
+    // ✅ CARREGA DADOS INICIAIS AUTOMATICAMENTE (sem usar botões)
+    const loadInitialData = async () => {
+      try {
+        console.log('🚀 Carregando dados iniciais automaticamente...')
+        await dispatch(fetchAggregatedData({})).unwrap()
+        await dispatch(fetchEmpresas()).unwrap()
+        await dispatch(fetchAnos()).unwrap()
+        console.log('✅ Dados iniciais carregados automaticamente com sucesso')
+      } catch (error) {
+        console.error('❌ Erro ao carregar dados iniciais:', error)
+      }
+    }
+
+    loadInitialData()
   }, [dispatch])
 
   return (
@@ -29,7 +41,7 @@ function App() {
               </p>
             </div>
             <div className="text-sm text-gray-500">
-              v{import.meta.env.VITE_APP_VERSION}
+              v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
             </div>
           </div>
         </div>
@@ -37,10 +49,10 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Controls */}
+        {/* Controls - BOTÕES MANUAIS */}
         <Controls />
 
-        {/* CompanyFilter */}
+        {/* CompanyFilter - FILTROS */}
         <CompanyFilter />
 
         {/* DataSummary (estatísticas) */}
@@ -48,7 +60,7 @@ function App() {
           <DataSummary />
         </div>
 
-        {/* Gráfico */}
+        {/* Gráfico - CARREGA AUTOMATICAMENTE */}
         <EnergyChart />
       </main>
 
@@ -56,7 +68,7 @@ function App() {
       <footer className="bg-white border-t mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="text-center text-sm text-gray-500">
-            © 2024 CCEE Energy Dashboard - Desenvolvido com React & Tailwind CSS
+            © 2025 CCEE Energy Dashboard - Desenvolvido com React & Tailwind CSS
           </div>
         </div>
       </footer>

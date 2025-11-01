@@ -20,21 +20,22 @@ const DataSummary = () => {
         saldoLiquidoMWm: 0,
         totalCompraMWh: 0,
         totalVendaMWh: 0,
-        totalHoras: 0
+        totalHoras: 0,
+        saldoLiquidoMWh: 0 // ✅ NOVO: Adicionar MWh do saldo líquido
       }
     }
 
     const totalCompraMWh = processedData.reduce((sum, item) => sum + (item.compraMWh || 0), 0)
     const totalVendaMWh = processedData.reduce((sum, item) => sum + (item.vendaMWh || 0), 0)
+    const saldoLiquidoMWh = totalCompraMWh - totalVendaMWh // ✅ NOVO: Calcular MWh do saldo
     
     // ✅ CORREÇÃO: Calcular MWm CORRETAMENTE (soma MWh / soma horas)
     const totalCompraMWm = calculateMWmForPeriod(totalCompraMWh, processedData)
     const totalVendaMWm = calculateMWmForPeriod(totalVendaMWh, processedData)
+    const saldoLiquidoMWm = calculateMWmForPeriod(saldoLiquidoMWh, processedData) // ✅ NOVO: MWm do saldo
     
     const meses = processedData.length
     const totalHoras = processedData.reduce((sum, item) => sum + (item.horasNoMes || 0), 0)
-    
-    const saldoLiquidoMWm = totalCompraMWm - totalVendaMWm  // ✅ CORREÇÃO: Net = Compra - Venda
 
     return {
       totalCompraMWm,
@@ -43,7 +44,8 @@ const DataSummary = () => {
       saldoLiquidoMWm,
       totalCompraMWh,
       totalVendaMWh,
-      totalHoras
+      totalHoras,
+      saldoLiquidoMWh // ✅ NOVO: Incluir no retorno
     }
   }, [processedData])
 
@@ -86,7 +88,7 @@ const DataSummary = () => {
           </p>
         </div>
 
-        {/* Saldo Líquido */}
+        {/* Saldo Líquido - ✅ CORRIGIDO: Agora mostra meses e horas */}
         <div className={`p-4 rounded-lg border ${
           stats.saldoLiquidoMWm >= 0 
             ? 'bg-green-50 border-green-200' 
@@ -110,10 +112,13 @@ const DataSummary = () => {
           <p className={`text-sm mt-1 ${
             stats.saldoLiquidoMWm >= 0 ? 'text-green-700' : 'text-red-700'
           }`}>
-            {stats.saldoLiquidoMWm >= 0 ? 'Superavit' : 'Déficit'}
+            {Math.abs(stats.saldoLiquidoMWh).toLocaleString('pt-BR')} MWh {stats.saldoLiquidoMWm >= 0 ? '' : ''}
           </p>
-          <p className="text-xs text-gray-600 mt-1">
-            Compra - Venda
+          {/* ✅ CORREÇÃO: Adicionar linha com meses e horas */}
+          <p className={`text-xs mt-1 ${
+            stats.saldoLiquidoMWm >= 0 ? 'text-green-600' : 'text-red-600'
+          }`}>
+            {stats.meses} meses • {stats.totalHoras.toLocaleString('pt-BR')} horas
           </p>
         </div>
 

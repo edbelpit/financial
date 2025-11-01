@@ -11,7 +11,30 @@ const api = axios.create({
   timeout: 30000,
 })
 
-// ✅ NOVO: Atualizar dados da CCEE
+// ✅ Helper para limpar mensagens após delay
+const createAutoClearThunk = (asyncThunk, clearDelay = 5000) => {
+  return async (payload, thunkAPI) => {
+    const result = await thunkAPI.dispatch(asyncThunk(payload))
+    
+    // ✅ Limpa a mensagem após o delay
+    setTimeout(() => {
+      thunkAPI.dispatch(clearMessages())
+    }, clearDelay)
+    
+    return result
+  }
+}
+
+// ✅ NOVA ACTION para limpar mensagens
+export const clearMessages = createAsyncThunk(
+  'data/clearMessages',
+  async (_, { dispatch }) => {
+    // Esta action será chamada automaticamente após o timeout
+    return { success: true }
+  }
+)
+
+// ✅ Atualizar dados da CCEE
 export const updateCCEEData = createAsyncThunk(
   'data/updateCCEEData',
   async (_, { rejectWithValue }) => {
@@ -26,6 +49,35 @@ export const updateCCEEData = createAsyncThunk(
         error.response?.data?.detail || 
         error.message || 
         'Erro ao atualizar dados da CCEE'
+      )
+    }
+  }
+)
+
+// ✅ Recarregar dados do frontend (com auto-clear)
+export const reloadFrontendData = createAsyncThunk(
+  'data/reloadFrontendData',
+  async (ano = null, { rejectWithValue, dispatch }) => {
+    try {
+      console.log('🔄 Recarregando dados do frontend...', { ano })
+      
+      const params = new URLSearchParams()
+      if (ano) params.append('ano', ano)
+      
+      const url = `/api/dados/agregados?${params.toString()}`
+      
+      const response = await api.get(url)
+      console.log(`✅ Dados agregados recebidos: ${Array.isArray(response.data) ? response.data.length : 'undefined'} registros`)
+      
+      return {
+        success: true, 
+        message: 'Dados recarregados com sucesso',
+        data: response.data
+      }
+    } catch (error) {
+      console.error('❌ Erro ao recarregar dados do frontend:', error)
+      return rejectWithValue(
+        error.message || 'Erro ao recarregar dados do frontend'
       )
     }
   }
@@ -47,35 +99,6 @@ export const fetchAnos = createAsyncThunk(
         error.response?.data?.detail || 
         error.message || 
         'Erro ao buscar anos disponíveis'
-      )
-    }
-  }
-)
-
-// Buscar dados com filtros
-export const fetchData = createAsyncThunk(
-  'data/fetchData',
-  async (filters = {}, { rejectWithValue }) => {
-    try {
-      const params = new URLSearchParams()
-      
-      if (filters.empresa) params.append('empresa', filters.empresa)
-      if (filters.mes) params.append('mes', filters.mes)
-      if (filters.ano) params.append('ano', filters.ano)
-      
-      const url = `/api/dados?${params.toString()}`
-      
-      console.log('🔄 Buscando dados do MongoDB...', { filters, url })
-      const response = await api.get(url)
-      const data = response.data.data || response.data
-      console.log(`✅ Dados recebidos: ${Array.isArray(data) ? data.length : 'undefined'} registros`)
-      return data
-    } catch (error) {
-      console.error('❌ Erro ao buscar dados:', error)
-      return rejectWithValue(
-        error.response?.data?.detail || 
-        error.message || 
-        'Erro ao buscar dados'
       )
     }
   }
@@ -129,78 +152,6 @@ export const fetchEmpresas = createAsyncThunk(
   }
 )
 
-// Buscar meses
-export const fetchMeses = createAsyncThunk(
-  'data/fetchMeses',
-  async (ano = null, { rejectWithValue }) => {
-    try {
-      const url = ano ? `/api/meses?ano=${ano}` : '/api/meses'
-      console.log('🔄 Buscando meses...', { ano, url })
-      const response = await api.get(url)
-      const meses = response.data.meses || response.data
-      console.log(`✅ Meses recebidos: ${Array.isArray(meses) ? meses.length : 'undefined'} meses`)
-      return meses
-    } catch (error) {
-      console.error('❌ Erro ao buscar meses:', error)
-      return rejectWithValue(
-        error.response?.data?.detail || 
-        error.message || 
-        'Erro ao buscar meses'
-      )
-    }
-  }
-)
-
-// Buscar estatísticas
-export const fetchStats = createAsyncThunk(
-  'data/fetchStats',
-  async (_, { rejectWithValue }) => {
-    try {
-      console.log('🔄 Buscando estatísticas...')
-      const response = await api.get('/api/stats')
-      console.log('✅ Estatísticas recebidas')
-      return response.data
-    } catch (error) {
-      console.error('❌ Erro ao buscar estatísticas:', error)
-      return rejectWithValue(
-        error.response?.data?.detail || 
-        error.message || 
-        'Erro ao buscar estatísticas'
-      )
-    }
-  }
-)
-
-// ✅ CORREÇÃO: Carregar todos os dados iniciais
-export const loadInitialData = createAsyncThunk(
-  'data/loadInitialData',
-  async (ano = null, { rejectWithValue, dispatch }) => {
-    try {
-      console.log('🔄 Carregando todos os dados iniciais...', { ano })
-      
-      // ✅ CORREÇÃO: Passa o ano corretamente para fetchAggregatedData
-      await dispatch(fetchAggregatedData(ano ? { ano } : {})).unwrap()
-      
-      // Carrega empresas
-      await dispatch(fetchEmpresas(ano)).unwrap()
-      
-      // Carrega meses
-      await dispatch(fetchMeses(ano)).unwrap()
-      
-      // Carrega anos disponíveis
-      await dispatch(fetchAnos()).unwrap()
-      
-      console.log('✅ Todos os dados iniciais carregados com sucesso')
-      return { success: true, message: 'Dados carregados com sucesso' }
-    } catch (error) {
-      console.error('❌ Erro ao carregar dados iniciais:', error)
-      return rejectWithValue(
-        error.message || 'Erro ao carregar dados iniciais'
-      )
-    }
-  }
-)
-
 const dataSlice = createSlice({
   name: 'data',
   initialState: {
@@ -208,51 +159,79 @@ const dataSlice = createSlice({
     rawData: [],
     aggregatedData: [],
     empresas: [],
-    meses: [],
     anos: [],
     stats: null,
     
-    // Estado de carregamento
-    loading: false,
+    // Estado de carregamento INDIVIDUAL
+    loading: false,           // Para fetchAggregatedData (EnergyChart)
     loadingEmpresas: false,
-    loadingMeses: false,
     loadingAnos: false,
+    
+    // ✅ ESTADOS DE OPERAÇÃO SEPARADOS
+    reloadStatus: 'idle',     // Para reloadFrontendData
+    reloadMessage: '',
+    
+    updateStatus: 'idle',     // Para updateCCEEData  
+    updateMessage: '',
+    
+    // ✅ NOVO: Timer IDs para controle dos timeouts
+    messageTimers: {
+      reload: null,
+      update: null
+    },
     
     // Filtros ativos
     selectedEmpresa: null,
     selectedYear: null,
-    selectedMes: null,
     
     // Status e erros
     error: null,
     lastUpdate: null,
     dataLoaded: false,
-    
-    // Operações
-    operationStatus: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
-    operationMessage: '',
   },
   reducers: {
     clearError: (state) => {
       state.error = null
-      state.operationStatus = 'idle'
-      state.operationMessage = ''
+    },
+    // ✅ NOVO: Limpar mensagens manualmente
+    clearReloadMessage: (state) => {
+      state.reloadStatus = 'idle'
+      state.reloadMessage = ''
+      if (state.messageTimers.reload) {
+        clearTimeout(state.messageTimers.reload)
+        state.messageTimers.reload = null
+      }
+    },
+    clearUpdateMessage: (state) => {
+      state.updateStatus = 'idle'
+      state.updateMessage = ''
+      if (state.messageTimers.update) {
+        clearTimeout(state.messageTimers.update)
+        state.messageTimers.update = null
+      }
+    },
+    // ✅ NOVO: Limpar todas as mensagens
+    clearAllMessages: (state) => {
+      state.reloadStatus = 'idle'
+      state.reloadMessage = ''
+      state.updateStatus = 'idle'
+      state.updateMessage = ''
+      
+      // Limpar todos os timers
+      Object.values(state.messageTimers).forEach(timer => {
+        if (timer) clearTimeout(timer)
+      })
+      state.messageTimers = { reload: null, update: null }
     },
     setSelectedEmpresa: (state, action) => {
       state.selectedEmpresa = action.payload
     },
     setSelectedYear: (state, action) => {
       state.selectedYear = action.payload
-      // ✅ CORREÇÃO: Não recarrega dados automaticamente aqui
-      // O useEffect no CompanyFilter vai cuidar disso
-    },
-    setSelectedMes: (state, action) => {
-      state.selectedMes = action.payload
     },
     clearFilters: (state) => {
       state.selectedEmpresa = null
       state.selectedYear = null
-      state.selectedMes = null
     },
     setLastUpdate: (state, action) => {
       state.lastUpdate = action.payload
@@ -261,42 +240,97 @@ const dataSlice = createSlice({
       state.rawData = []
       state.aggregatedData = []
       state.empresas = []
-      state.meses = []
       state.anos = []
       state.stats = null
       state.selectedEmpresa = null
       state.selectedYear = null
-      state.selectedMes = null
       state.dataLoaded = false
       state.lastUpdate = null
+      state.reloadStatus = 'idle'
+      state.reloadMessage = ''
+      state.updateStatus = 'idle'
+      state.updateMessage = ''
+      // Limpar timers
+      Object.values(state.messageTimers).forEach(timer => {
+        if (timer) clearTimeout(timer)
+      })
+      state.messageTimers = { reload: null, update: null }
     }
   },
   extraReducers: (builder) => {
     builder
-      // ✅ NOVO: Update CCEE Data - COM MENSAGENS CLARAS
+      // ✅ UPDATE CCEE Data - COM AUTO-CLEAR
       .addCase(updateCCEEData.pending, (state) => {
-        state.operationStatus = 'loading'
-        state.operationMessage = 'Verificando atualizações na CCEE...'
+        state.updateStatus = 'loading'
+        state.updateMessage = 'Verificando atualizações na CCEE...'
+        // Limpar timer anterior se existir
+        if (state.messageTimers.update) {
+          clearTimeout(state.messageTimers.update)
+        }
       })
       .addCase(updateCCEEData.fulfilled, (state, action) => {
         if (action.payload.success) {
           if (action.payload.updated) {
-            state.operationStatus = 'succeeded'
-            // ✅ Mensagem específica para novos dados adicionados
-            state.operationMessage = `✅ Novos dados adicionados ao banco (${action.payload.month_updated}) - ${action.payload.records_updated} registros`
+            state.updateStatus = 'succeeded'
+            state.updateMessage = `✅ Novos dados adicionados ao banco (${action.payload.month_updated}) - ${action.payload.records_updated} registros`
           } else {
-            state.operationStatus = 'succeeded'
-            // ✅ Mensagem específica para banco atualizado
-            state.operationMessage = '✅ Banco já está atualizado'
+            state.updateStatus = 'succeeded'
+            state.updateMessage = '✅ Banco já está atualizado'
           }
+          
+          // ✅ Configurar auto-clear após 5 segundos
+          state.messageTimers.update = setTimeout(() => {
+            // Esta função será chamada pelo componente via dispatch
+          }, 5000)
         } else {
-          state.operationStatus = 'failed'
-          state.operationMessage = `❌ ${action.payload.message}`
+          state.updateStatus = 'failed'
+          state.updateMessage = `❌ ${action.payload.message}`
         }
       })
       .addCase(updateCCEEData.rejected, (state, action) => {
-        state.operationStatus = 'failed'
-        state.operationMessage = `❌ Erro na atualização: ${action.payload}`
+        state.updateStatus = 'failed'
+        state.updateMessage = `❌ Erro na atualização: ${action.payload}`
+      })
+      
+      // ✅ RELOAD FRONTEND DATA - COM AUTO-CLEAR
+      .addCase(reloadFrontendData.pending, (state) => {
+        state.reloadStatus = 'loading'
+        state.reloadMessage = 'Recarregando dados...'
+        // Limpar timer anterior se existir
+        if (state.messageTimers.reload) {
+          clearTimeout(state.messageTimers.reload)
+        }
+      })
+      .addCase(reloadFrontendData.fulfilled, (state, action) => {
+        if (action.payload.success) {
+          state.reloadStatus = 'succeeded'
+          state.reloadMessage = '✅ Dados recarregados com sucesso'
+          state.aggregatedData = action.payload.data
+          state.dataLoaded = true
+          state.lastUpdate = new Date().toISOString()
+          
+          // ✅ Configurar auto-clear após 5 segundos
+          state.messageTimers.reload = setTimeout(() => {
+            // Esta função será chamada pelo componente via dispatch
+          }, 5000)
+        } else {
+          state.reloadStatus = 'failed'
+          state.reloadMessage = `❌ ${action.payload.message}`
+        }
+      })
+      .addCase(reloadFrontendData.rejected, (state, action) => {
+        state.reloadStatus = 'failed'
+        state.reloadMessage = `❌ ${action.payload}`
+      })
+      
+      // ✅ CLEAR MESSAGES ACTION
+      .addCase(clearMessages.fulfilled, (state) => {
+        // Esta action é chamada pelos timeouts para limpar mensagens
+        state.reloadStatus = 'idle'
+        state.reloadMessage = ''
+        state.updateStatus = 'idle' 
+        state.updateMessage = ''
+        state.messageTimers = { reload: null, update: null }
       })
       
       // Fetch Anos
@@ -311,23 +345,6 @@ const dataSlice = createSlice({
       })
       .addCase(fetchAnos.rejected, (state, action) => {
         state.loadingAnos = false
-        state.error = action.payload
-      })
-      
-      // Fetch Data
-      .addCase(fetchData.pending, (state) => {
-        state.loading = true
-        state.error = null
-      })
-      .addCase(fetchData.fulfilled, (state, action) => {
-        state.loading = false
-        state.rawData = Array.isArray(action.payload) ? action.payload : []
-        state.dataLoaded = true
-        state.lastUpdate = new Date().toISOString()
-        state.error = null
-      })
-      .addCase(fetchData.rejected, (state, action) => {
-        state.loading = false
         state.error = action.payload
       })
       
@@ -358,52 +375,16 @@ const dataSlice = createSlice({
         state.loadingEmpresas = false
         state.error = action.payload
       })
-      
-      // Fetch Meses
-      .addCase(fetchMeses.pending, (state) => {
-        state.loadingMeses = true
-      })
-      .addCase(fetchMeses.fulfilled, (state, action) => {
-        state.loadingMeses = false
-        state.meses = Array.isArray(action.payload) ? action.payload : []
-      })
-      .addCase(fetchMeses.rejected, (state, action) => {
-        state.loadingMeses = false
-        state.error = action.payload
-      })
-      
-      // Fetch Stats
-      .addCase(fetchStats.fulfilled, (state, action) => {
-        state.stats = action.payload
-      })
-      .addCase(fetchStats.rejected, (state, action) => {
-        state.error = action.payload
-      })
-      
-      // Load Initial Data
-      .addCase(loadInitialData.pending, (state) => {
-        state.operationStatus = 'loading'
-        state.operationMessage = 'Carregando dados do banco...'
-        state.error = null
-      })
-      .addCase(loadInitialData.fulfilled, (state, action) => {
-        state.operationStatus = 'succeeded'
-        state.operationMessage = '✅ Dados carregados com sucesso'
-        state.error = null
-      })
-      .addCase(loadInitialData.rejected, (state, action) => {
-        state.operationStatus = 'failed'
-        state.operationMessage = `❌ ${action.payload}`
-        state.error = action.payload
-      })
   }
 })
 
 export const { 
   clearError, 
+  clearReloadMessage,
+  clearUpdateMessage, 
+  clearAllMessages,
   setSelectedEmpresa, 
-  setSelectedYear, 
-  setSelectedMes,
+  setSelectedYear,
   clearFilters,
   setLastUpdate,
   resetData
